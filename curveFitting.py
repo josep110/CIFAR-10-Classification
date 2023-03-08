@@ -16,6 +16,6 @@ z = torch.tensor(dat)  # creating a tensor from array of random tensors.
 z.requires_grad_(True) # enable gradient calculation.
 print(z)
 
-y = 2*torch.dot(z,z)
+y = torch.dot(z,z)
 y.backward()
 print(z)
