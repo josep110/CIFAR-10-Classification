@@ -24,76 +24,93 @@ testingLoader = DataLoader(CIFAR10_dataset_test, batchsize, pin_memory=True)    
 
 class Block(nn.Module):
 
-  def __init__(self, K, ins, conv_kernal):
+  def __init__(self, batchsize, K, ins, conv_kernal, channels=3):
+
+    # Each block produces vector [a] of length K by : applying spatial average pooling to input tensor, 
+    # , running output though linear layer and activation function.
+
+    # Input tensor is run through K different convolution layers and multiplied with corresponding entry in a, then combined to produce output tensor. 
+
     super(Block, self).__init__()
+    
+    self.batchsize = batchsize
     self.K = K
-    self.conv_kernal = conv_kernal
     self.ins = ins
-    self.lin = nn.Linear(3,self.K)
+    self.conv_kernal = conv_kernal
+    self.channels = channels
+
+    self.map_dim = (self.ins - self.conv_kernal) + 1
+
+    self.ins = ins
+    self.lin = nn.Linear(self.channels,self.channels)
     self.SpatialAveragePool = nn.AvgPool2d(self.ins) # takes global average of each input channel.
     self.g = nn.ReLU()                         # activation function applied to S.A.P output.
 
     self.Convs = nn.ModuleList()
 
     for i in range(self.K):
-      self.Convs.append(nn.Conv2d(3,3,conv_kernal))
-
-    
+      self.Convs.append(nn.Conv2d(self.channels, self.channels, conv_kernal))
 
 
   def forward(self, X):
-    a = self.SpatialAveragePool(X)   
 
-    a = a.view([-1,3])
+    self.batchsize = X.shape[0]                                    # X = [batch, channels, ins, ins]
+    a = self.SpatialAveragePool(X)                # [batch, channels, 1, 1]  
+    a = a.view(self.batchsize, self.channels)                 # [batch, channels]   SpatialAveragePool(X)
+    
+
+    a = self.lin(a)                   # [batch, channels]  SpatialAveragePool(X)W  -> [a1, a2, a3]
+    a = self.g(a)                     # [batch, channels]  g(SpatialAveragePool(X)W) -> [a1, a2, a3] = a
+    a = a.view(self.batchsize, self.channels, 1)
+
+    o_components = []
+
+    for k in range(self.K):                           # This loop finds each ak*convk(X) that are combined to form block output signal.
+      convk = self.Convs[k](X).view(self.batchsize, -1, 3)
+      ak = a[:,k].view(self.batchsize,1,1)
+      comp_k = mul(convk, ak)
+      o_components.append(comp_k)     
 
 
-    a = self.lin(a)
-    a = self.g(a)                     # vector a[ai .. ak]
-
-    #o = mul(self.Convs[0](X),a[0][0])    # Conv(k)(X)*a(k)
-    o = self.Convs[0](X)
-
-   # print(o.shape)
-
+    o = o_components[0]
+    o = o.view(self.batchsize, self.channels, self.map_dim, self.map_dim)               # a1Con1(X)
     for i in range(1,self.K):
-      o = add(o, self.Convs[i](X))    # iteritively sums up o.
+      o = add(o,o_components[i].view(self.batchsize, self.channels, self.map_dim, self.map_dim))  #  + ... akConvk(X)
 
-    return o     
-
-
-
+    return o
+    
 
 
 class CIFAR10_Model(nn.Module):
-  def __init__(self, block_info):
+  def __init__(self, batchsize, block_info):
     super(CIFAR10_Model,self).__init__()
 
     self.Blocks = nn.ModuleList()
 
     for i, (ins, conv_kernal) in enumerate(block_info):
-      self.Blocks.append(Block(20, ins, conv_kernal))
+      self.Blocks.append(Block(batchsize, 3, ins, conv_kernal))            # sets up Blocks.
 
 
   def forward(self, X):
 
-    o = self.Blocks[0].forward(X)
-    for bl in self.Blocks[1::]:
-      o = bl.forward(o)
+    o = self.Blocks[0].forward(X) # output of first block
 
-    o = nn.AvgPool2d(2,10)(o)
+    for bl in self.Blocks[1::]:
+      o = bl.forward(o)          # output of subsequent blocks up to final.
+
+    last_block_outdim = o.shape[3]
+
+    o = nn.AvgPool2d(last_block_outdim,10)(o)   # Pools output of last Block.
     o = o.view(-1,3)
-    # print(o.shape)
-    o = nn.Linear(3,10)(o)
-    o = nn.Softmax(dim=0)(o)
+
+    o = nn.Linear(3,10)(o)                      # Linear layer, converts output signal into vector length 10.
+    o = nn.Softmax(dim=0)(o)                    # Softmax classification for 10 classes.
 
     return o
 
+block_info = ((32,12),(21,10),(12,6),(7,4),(4,3))
+test = CIFAR10_Model(batchsize, block_info)
 
-
-
-
-block_info = ((32,4),(29,8),(22,11),(12,6),(7,6))
-test = CIFAR10_Model(block_info)
 
 loss = nn.CrossEntropyLoss() # mean squared error loss.
 lr = 0.1 
