@@ -11,7 +11,6 @@ from torch import argmax
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10 # Allows access to CIFAR-10 Validation set.
 from torchvision.transforms import ToTensor # Allows access to method for converting datset images to Tensors.
-import my_utils as mu
 
 
 CIFAR10_dataset_train = CIFAR10('./dataset', True, download=True, transform=ToTensor()) # pulls CIFAR-10 training set to dir 'dataset'. Each image converted to Tensor.
@@ -108,16 +107,4 @@ class CIFAR10_Model(nn.Module):
 
     return o
 
-block_info = ((32,12),(21,10),(12,6),(7,4),(4,3))
-test = CIFAR10_Model(batchsize, block_info)
 
-
-loss = nn.CrossEntropyLoss() # mean squared error loss.
-lr = 0.1 
-optimizer = torch.optim.SGD(test.parameters(), lr=lr) # stochastic gradient descent optimizer.
-
-
-
-num_epochs = 20
-
-mu.train_ch3(test, trainingLoader, testingLoader, loss, num_epochs, optimizer)
